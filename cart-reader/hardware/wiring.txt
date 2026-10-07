@@ -1,154 +1,180 @@
-GB / GBC / GBA 卡帶讀寫器接線
-================================
+GB / GBC / GBA 卡帶接線
+======================
 
-主控是 Raspberry Pi Pico（RP2040，不要用 Pico W）。韌體用 C + Pico SDK。
-GP23（板載電源模式）和 GP24（VBUS 偵測）不要拿來打匯流排。
+每一根卡槽信號都是這條路：
 
-為什麼 A16–A23 不用 74LVC573
-----------------------------
-GBA ROM 的確可以鎖存高位址。但同一組卡槽手指在 GB/GBC 和 GBA SRAM 上是資料：
-讀取當下 A0–A15 還要保持，D0–D7 同時要讀回來。573 只有輸出，做不到。
-所以 pins 22–29 用一顆雙向 74LVC8T245 直接接 GPIO。
-慢的控制腳（/RD /WR /CS /CS2 /CLK、方向、電源）放在兩顆串接的 74LVC595，
-Pico 只花 3 根腳。ROM 讀取時 595 一次更新約 1 µs，16 MB 仍落在 USB 的速度裡。
+  Pico 或 74LVC595  →  74LVC8T245 的 A 腳  →  B 腳  →  33Ω  →  卡槽
 
-卡槽
-----
-用從 GBA 拆下的 AGB 卡槽。GB、GBC、GBA 都能插進去。
-腳距不要自己估，也不要用 2.54 mm 排針代替。
-原廠槽裡的機械電壓開關不要接到 5V 或 3.3V。電壓只由韌體切。
-有那組開關的話，把開關上的電源走線剪斷，腳 1 只接本板的 VCART。
+74LVC8T245 做 3.3V 和卡帶電壓的轉換，一共 4 顆（U1–U4）。
+74LVC595 只用來記住控制腳和電源開關，一共 2 顆（U5、U6）。
 
-腳位（標籤朝上、金手指從左到右，GBATEK 編號）
+這張表沒有 74LVC573。
+573 一顆只能鎖 8 條輸出。16 條位址再加 16 條資料，才會是 4 顆 573。
+這塊板的 24 條匯流排直接接在 Pico 上，電位由腳自己保持，所以不加鎖存器。
+573 也不能取代 245：它不能把資料讀回來，也不能把 Pico 的 3.3V 轉成 GB 卡帶的 5V。
 
-  腳   GBA ROM              GB / GBC 以及 GBA SRAM
-  1    VCART                VCART
-  2    CLK                  CLK（PHI）
-  3    /WR                  /WR
-  4    /RD                  /RD
-  5    /CS                  /CS（GB SRAM 才拉低；讀 ROM 保持高）
-  6-21 AD0–AD15             A0–A15
-  22-29 A16–A23             D0–D7
-  30   /CS2                 /RESET（閒置為高）
-  31   IRQ                  AUDIO（不接）
-  32   GND                  GND
 
-Pico GPIO
----------
-  GP0–GP15   AD0–AD15，經過 U1、U2
-  GP16–GP22  H0–H6，經過 U3，到卡槽腳 22–28
-  GP26       H7，經過 U3，到卡槽腳 29
-  GP25       兩顆 595 的 RCLK（板載 LED 會跟著閃，代表匯流排在動）
-  GP27       595 的 SER
-  GP28       595 的 SRCLK
-  GP23 GP24  不接
+晶片各做一件事
+--------------
 
-74LVC8T245（四顆）
-------------------
-每一顆：VCCA = Pico 3V3，VCCB = VCART，GND 共地。
-VCCA、VCCB 各放一顆 100 nF，盡量貼 IC。
-DIR = 1 時資料從 A（MCU）到 B（卡帶）。
-B 側每一根到卡槽的線串 33 Ω，排阻放在 IC 旁邊，不放在卡槽旁邊。
+  U1   74LVC8T245   卡槽腳 6–13     AD0–AD7          雙向
+  U2   74LVC8T245   卡槽腳 14–21    AD8–AD15         雙向
+  U3   74LVC8T245   卡槽腳 22–29    A16–A23 或 D0–D7 雙向
+  U4   74LVC8T245   /RD /WR /CS /CS2 /CLK            只送往卡帶
+  U5   74LVC595     上面這些控制腳的來源
+  U6   74LVC595     EN_5V、EN_3V3
 
-  U1  AD0–AD7    A1–A8 = GP0–GP7      B1–B8 = 卡槽腳 6–13     DIR = DIR_AD
-  U2  AD8–AD15   A1–A8 = GP8–GP15     B1–B8 = 卡槽腳 14–21    DIR = DIR_AD
-  U3  H0–H7      A1–A8 = GP16–GP22,GP26  B1–B8 = 卡槽腳 22–29  DIR = DIR_H
-  U4  控制       DIR 直接接 VCCA（永遠 MCU → 卡帶）
-             A1 = /RD    B1 = 卡槽腳 4
-             A2 = /WR    B2 = 卡槽腳 3
-             A3 = /CS    B3 = 卡槽腳 5
-             A4 = /CS2   B4 = 卡槽腳 30
-             A5 = CLK    B5 = 卡槽腳 2
-             A6 A7 A8 接 GND，B6 B7 B8 不接
+U1、U2 的 DIR 接在一起，叫做 DIR_AD。
+U3 的 DIR 叫做 DIR_H。
+DIR = 1：Pico 寫向卡帶。DIR = 0：從卡帶讀回來。
+U4 的 DIR 直接接 Pico 的 3V3，永遠寫向卡帶。
 
-U1 U2 U3 U4 的 /OE 接在一起，叫 nOE。
-nOE 用 10 kΩ 拉到 Pico 3V3（預設關閉）。
-BUF_EN 為高時，2N7002 把 nOE 拉到 GND，四顆轉換器才導通。
+四顆 245 的 /OE 接在一起，叫做 nOE。
+nOE 用 10k 拉到 Pico 3V3，平時關閉。
+BUF_EN 為高時，一顆 2N7002 把 nOE 拉到 GND，四顆才導通。
+2N7002：閘極串 1k 接 BUF_EN，汲極接 nOE，源極接 GND。
 
-74LVC595（兩顆串接，U5 → U6）
------------------------------
-兩顆都吃 Pico 3V3。/OE 接 GND。/SRCLR 用 10 kΩ 拉到 3V3。
-SRCLK 兩顆並接 GP28，RCLK 兩顆並接 GP25。
-U5 的 SER 接 GP27。U5 的 QH' 接 U6 的 SER。
-VCC 各 100 nF。
 
-韌體先送 bit15、最後送 bit0，所以 bit0 落在 U5 的 QA。
+卡槽每一腳
+----------
 
-  U5 QA  /RD      閒置 1
-  U5 QB  /WR      閒置 1
-  U5 QC  /CS      閒置 1
-  U5 QD  /CS2     閒置 1（GB 的 /RESET 因此保持高）
-  U5 QE  CLK      閒置 0
-  U5 QF  DIR_AD   閒置 1
-  U5 QG  DIR_H    閒置 1
-  U5 QH  BUF_EN   閒置 0
-  U6 QA  EN_5V    閒置 0
-  U6 QB  EN_3V3   閒置 0
-  U6 其餘輸出保持 0，不接
+標籤朝上，金手指從左到右。同一腳在兩種卡上的名字不同。
+
+  卡槽   GB/GBC          GBA              接到
+  ----   --------------  ---------------  ---------------------------
+  1      5V 或 3.3V      3.3V             VCART
+  2      CLK             CLK              U4 的 B5，前面是 33Ω
+  3      /WR             /WR              U4 的 B2
+  4      /RD             /RD              U4 的 B1
+  5      /CS             /CS              U4 的 B3
+  6      A0              AD0              U1 的 B1
+  7      A1              AD1              U1 的 B2
+  8      A2              AD2              U1 的 B3
+  9      A3              AD3              U1 的 B4
+  10     A4              AD4              U1 的 B5
+  11     A5              AD5              U1 的 B6
+  12     A6              AD6              U1 的 B7
+  13     A7              AD7              U1 的 B8
+  14     A8              AD8              U2 的 B1
+  15     A9              AD9              U2 的 B2
+  16     A10             AD10             U2 的 B3
+  17     A11             AD11             U2 的 B4
+  18     A12             AD12             U2 的 B5
+  19     A13             AD13             U2 的 B6
+  20     A14             AD14             U2 的 B7
+  21     A15             AD15             U2 的 B8
+  22     D0              A16              U3 的 B1
+  23     D1              A17              U3 的 B2
+  24     D2              A18              U3 的 B3
+  25     D3              A19              U3 的 B4
+  26     D4              A20              U3 的 B5
+  27     D5              A21              U3 的 B6
+  28     D6              A22              U3 的 B7
+  29     D7              A23              U3 的 B8
+  30     /RESET          /CS2             U4 的 B4
+  31     不接            不接             空著
+  32     GND             GND              地
+
+腳 2、3、4、5、30 各用 10k 拉到 VCART。腳 2 的 CLK 另用 100k 拉到 GND。
+B 腳和卡槽之間每一根都串 33Ω，排阻放在 245 旁邊。
+
+
+Pico 每一腳
+-----------
+
+不要用 Pico W。GP23、GP24 不接。
+
+  Pico    接到
+  ------  ---------------------------------
+  GP0     U1 的 A1     AD0
+  GP1     U1 的 A2     AD1
+  GP2     U1 的 A3     AD2
+  GP3     U1 的 A4     AD3
+  GP4     U1 的 A5     AD4
+  GP5     U1 的 A6     AD5
+  GP6     U1 的 A7     AD6
+  GP7     U1 的 A8     AD7
+  GP8     U2 的 A1     AD8
+  GP9     U2 的 A2     AD9
+  GP10    U2 的 A3     AD10
+  GP11    U2 的 A4     AD11
+  GP12    U2 的 A5     AD12
+  GP13    U2 的 A6     AD13
+  GP14    U2 的 A7     AD14
+  GP15    U2 的 A8     AD15
+  GP16    U3 的 A1     卡槽腳 22
+  GP17    U3 的 A2     卡槽腳 23
+  GP18    U3 的 A3     卡槽腳 24
+  GP19    U3 的 A4     卡槽腳 25
+  GP20    U3 的 A5     卡槽腳 26
+  GP21    U3 的 A6     卡槽腳 27
+  GP22    U3 的 A7     卡槽腳 28
+  GP26    U3 的 A8     卡槽腳 29
+  GP25    U5 和 U6 的 RCLK（板載 LED 會一起閃）
+  GP27    U5 的 SER
+  GP28    U5 和 U6 的 SRCLK
+  3V3     U1–U6 的邏輯電源、各 245 的 VCCA、U4 的 DIR
+  VBUS    卡帶電源的 5V 來源，見下方
+  GND     共地，含卡槽腳 32
+
+U5 的 QH' 接到 U6 的 SER。兩顆 595 的 SRCLK 都接 GP28，RCLK 都接 GP25。
+595 的 /OE 接 GND。/SRCLR 用 10k 拉到 3V3。VCC 接 Pico 3V3。
+
+
+595 的每一位
+------------
+
+韌體先送 bit15、最後送 bit0，所以 bit0 在 U5 的 QA。
+
+  位元   腳      名稱      閒置    接到
+  ----   ------  --------  ----    -------------------------
+  0      U5 QA   /RD       高      U4 的 A1
+  1      U5 QB   /WR       高      U4 的 A2
+  2      U5 QC   /CS       高      U4 的 A3
+  3      U5 QD   /CS2      高      U4 的 A4（GB 上這是 /RESET）
+  4      U5 QE   CLK       低      U4 的 A5
+  5      U5 QF   DIR_AD    高      U1 的 DIR、U2 的 DIR
+  6      U5 QG   DIR_H     高      U3 的 DIR
+  7      U5 QH   BUF_EN    低      2N7002 的閘極（經 1k）
+  8      U6 QA   EN_5V     低      5V 那路 MOSFET 的 2N7002
+  9      U6 QB   EN_3V3    低      3.3V 那路 MOSFET 的 2N7002
+  10–15  U6 其餘 不接      低
+
+U4 的 A6、A7、A8 接 GND。B6、B7、B8 不接。
+
 
 電源
 ----
-USB 5V 從 Pico 的 VBUS 取出，經過 500 mA 自恢復保險絲再分兩路。
-Pico 自己的 3V3 只供 MCU、595、轉換器的 VCCA。不要拿它供卡帶。
 
-  VBUS → 保險絲 → AP2112K-3.3 輸入。輸入、輸出各 10 µF。
-  AP2112 輸出叫 V3。
+Pico 自己的 3V3 只給 MCU、595、245 的 VCCA。卡帶不要接這顆 3V3。
 
-5V 和 3.3V 都不能用單顆 P-MOS 並在一起，體二極體會把較高的那路倒灌回去。
-每一路用兩顆 AO3401 背對背：
+  Pico VBUS → 500mA 保險絲 → 分成兩路
 
-  源極朝電源的那顆，和源極朝 VCART 的那顆，汲極接在一起。
-  兩顆閘極接在一起。
-  100 kΩ 從閘極拉到「靠電源那一側」的源極，上電預設關閉。
-  2N7002：源極 GND，汲極接閘極，閘極經 1 kΩ 接到 EN_5V 或 EN_3V3。
-  EN 為高時 2N7002 把閘極拉低，兩顆 AO3401 同時導通。
+  5V 路：保險絲 → 兩顆 AO3401 背對背 → VCART
+  3.3V 路：保險絲 → AP2112K-3.3 → 兩顆 AO3401 背對背 → VCART
 
-  5V 路的電源側源極接保險絲後的 VBUS。
-  3.3V 路的電源側源極接 V3。
-  兩路靠卡帶的源極接在一起，成為 VCART。
-  VCART 也接到四顆 245 的 VCCB。
+AP2112 的 EN 接到 595 的 EN_3V3（3.3V 邏輯，跟那顆 2N7002 的閘極同一點）。
+高電平 LDO 開，低電平 LDO 關。EN 不要懸空。
+這顆腳只關掉穩壓器，5V 還是會從另一路灌到輸出腳，所以背對背的 AO3401 仍要留著。
 
-VCART 上、開關之後：100 µF + 100 nF。100 nF 貼卡槽腳 1。
-卡槽腳 32 直接進地平面。
+背對背的接法，每一路都一樣：
 
-/RD /WR /CS /CS2 各用 10 kΩ 拉到 VCART，轉換器關閉時維持高。
-CLK 用 100 kΩ 拉到 GND，閒置為低。
-腳 31 不接。
+  靠電源的那顆，源極接電源。
+  靠卡帶的那顆，源極接 VCART。
+  兩顆的汲極接在一起，兩顆的閘極接在一起。
+  閘極用 100k 拉到「靠電源那一側」的源極，上電是關的。
+  EN 為高時，2N7002 把閘極拉到 GND，兩顆同時打開。
 
-韌體上電順序
-------------
-1. 595 送出閒置控制（/RD /WR /CS /CS2 = 1，CLK = 0，方向 = 輸出，BUF_EN = 0，兩路 EN = 0）。
-2. 要上電時先確定兩路 EN 都是 0，等 10 ms。
-3. 只打開 EN_5V 或 EN_3V3 其中一路。GBA 模式拒絕 5V。
-4. 等 5 ms 讓 VCART 起來。
-5. 才把 BUF_EN 設成 1。
+VCART 同時接到四顆 245 的 VCCB，以及卡槽腳 1。
+VCART 上放 100µF。卡槽腳 1 旁邊再放 100nF。
+AP2112 的輸入和輸出各放 10µF。每顆 IC 的電源腳各放 100nF。
 
-切換電壓或切換 DMG/AGB 模式時，先關 BUF_EN，再兩路都關，等 10 ms。
+同一時間只開一路。GBA 不開 5V。
+切換時先讓 BUF_EN = 0，兩路 EN 都關，等 10ms，再開要的那一路，等 5ms，最後 BUF_EN = 1。
 
-模式和電壓是分開的
-------------------
-  DMG + 5V    GB / GBC 一般讀寫
-  DMG + 3.3V  少數 GB flash 卡要 3.3V 才能寫
-  AGB + 3.3V  GBA
-  AGB + 5V    韌體直接回錯誤，不會打開 5V
 
-PCB
----
-兩層板。卡槽在板邊，匯流排短於 80 mm，同一組線長差在 10 mm 以內。
-匯流排底下保持完整地，不要切開。
-33 Ω 排阻靠近 245，100 nF 靠近卡槽 VCC 和每顆 IC。
-USB 用 Pico 上的插座，不要另拉差分對。
+卡槽本體
+--------
 
-讀取時序（韌體已照這個做）
---------------------------
-GBA ROM：word = byte_address >> 1。
-  AD 輸出 word[15:0]，H 輸出 word[23:16]，DIR 都是輸出。
-  /CS 拉低，等 100 ns。
-  AD 改輸入，DIR_AD 改成讀，/RD 拉低，等 300 ns，讀 AD。
-  /RD、/CS 拉高。
-
-GBA SRAM：位址不右移，放在 AD。資料在 H（腳 22–29）。拉低的是 /CS2，不是 /CS。
-
-GB / GBC ROM：位址在 AD，資料在 H，/CS 保持高。/RD 拉低約 500 ns。
-  線性位址 >= 0x4000 時，韌體用 MBC5 的方式寫 0x2000 和 0x3000 換 bank。
-GB SRAM：同樣的資料路徑，但 /CS 拉低。
+用從 GBA 拆下的卡槽，GB、GBC、GBA 都能插。
+槽裡原來的電壓開關不要接到 5V 或 3.3V。腳 1 只接 VCART。
