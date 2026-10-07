@@ -1,0 +1,21 @@
+需要 Pico SDK 2.x，並設定 PICO_SDK_PATH。
+
+  cd cart-reader/firmware
+  cmake -B build -DCMAKE_BUILD_TYPE=Release
+  cmake --build build
+
+產生 build/cart_reader.uf2，按住 Pico 的 BOOTSEL 再插 USB，把 uf2 複製進去。
+
+主機端要先 pip install pyserial。在 cart-reader/host：
+
+  python test_frame.py
+  python cart_cli.py --port COMx ping
+  python cart_cli.py --port COMx mode dmg
+  python cart_cli.py --port COMx voltage 5
+  python cart_cli.py --port COMx read --addr 0 --len 32768 --out rom.bin
+
+GBA 要先 mode agb，再 voltage 3.3。agb 配 voltage 5 會被韌體拒絕。
+Flash 寫入在 MCU 裡做解鎖和 DQ7 輪詢。GB 用 0x555/0x2AA 命令，GBA 用 0xAAA/0x555。
+GBA 32-word buffer program：加上 --agb --buffer。
+一次 USB 封包最多 4096 bytes。
+SRAM 的位址是存檔芯片上的偏移，不是 CPU 的 0xA000。

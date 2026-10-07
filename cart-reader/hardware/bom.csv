@@ -1,0 +1,17 @@
+Qty,Part,Value,Notes
+1,Raspberry Pi Pico,RP2040 module,Not Pico W. USB connector on the module.
+1,AGB cartridge slot,donor from GBA,Do not wire the mechanical voltage switch.
+4,SN74LVC8T245,TSSOP-24,U1-U4. VCCA=Pico 3V3 VCCB=VCART.
+2,SN74LVC595,SOIC-16 or TSSOP-16,U5 then U6 daisy chain.
+1,AP2112K-3.3,SOT-23-5,Cart 3.3V rail. Do not use the Pico 3V3 pin for the cart.
+4,AO3401,SOT-23 P-MOS,Two back-to-back per rail.
+3,2N7002,SOT-23 N-MOS,EN_5V EN_3V3 and BUF_EN.
+1,Polyfuse,500 mA hold,Between Pico VBUS and the cart power tree.
+8,Resistor network,4x33 ohm,Series on every cart signal. 29 used 3 spare.
+7,Resistor,10k,"nOE pull-up; /SRCLR x2; /RD /WR /CS /CS2 pull-ups to VCART"
+2,Resistor,100k,AO3401 gate pull to the rail-side source. One per rail.
+3,Resistor,1k,2N7002 gates.
+1,Resistor,100k,CLK pull-down.
+1,Capacitor,100 uF,VCART bulk after the switches.
+2,Capacitor,10 uF,AP2112 input and output.
+11,Capacitor,100 nF,"U1-U4 VCCA and VCCB (8), U5 U6 VCC (2), cart pin 1 (1)."
